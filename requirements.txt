@@ -1,0 +1,6 @@
+pyspark
+streamlit
+pandas
+numpy
+requests
+nltk
