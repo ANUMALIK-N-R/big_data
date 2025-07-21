@@ -49,6 +49,11 @@ predictions = model.transform(features_df)
 
 # Show predictions in console
 query = predictions.select("text", "prediction").writeStream \
-    .outputMode("append").format("console").start()
+    .outputMode("append") \
+    .format("csv") \
+    .option("path", "predictions_log") \
+    .option("checkpointLocation", "checkpoints") \
+    .option("header", "true") \
+    .start()
 
 query.awaitTermination()
