@@ -1,7 +1,9 @@
+import os
+os.environ["JAVA_HOME"] = "/usr/lib/jvm/java-11-openjdk-amd64"
+os.environ["PATH"] = os.environ["JAVA_HOME"] + "/bin:" + os.environ["PATH"]
 import streamlit as st
 import requests
 import pandas as pd
-import os
 import pathlib
 
 from pyspark.sql import SparkSession
