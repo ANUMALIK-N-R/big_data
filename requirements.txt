@@ -1,6 +1,5 @@
 streamlit
-pandas
 requests
-pyspark
-sparknlp
-
+transformers
+scikit-learn
+pandas
