@@ -4,6 +4,7 @@ import requests
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import Tokenizer, HashingTF, IDF
 from pyspark.ml.classification import LogisticRegression
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
 
@@ -43,11 +44,10 @@ def label_sentiment(df_pd):
         else:
             return "Neutral"
     df_pd["sentiment"] = df_pd["title"].apply(classify_title)
-    # Map to numeric labels for Spark ML (all >= 0)
+    # Map to numeric labels for Spark ML (no negatives)
     label_map = {"Positive": 2.0, "Neutral": 1.0, "Negative": 0.0}
     df_pd["label"] = df_pd["sentiment"].map(label_map)
     return df_pd
-
 
 # Streamlit UI
 st.title("📰 Minimal PySpark News Sentiment")
@@ -79,6 +79,10 @@ if st.button("Run"):
             lr = LogisticRegression(maxIter=10, regParam=0.001)
             model = lr.fit(rescaled_data)
 
+            # Training accuracy
+            evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+            train_accuracy = evaluator.evaluate(model.transform(rescaled_data))
+
             # Store pipeline parts in session state
             st.session_state["model"] = model
             st.session_state["hashingTF"] = hashingTF
@@ -86,14 +90,16 @@ if st.button("Run"):
             st.session_state["idf_model"] = idf_model
 
             st.success("Model trained in Spark with real sentiment labels.")
+            st.info(f"Training Accuracy: {train_accuracy:.2%}")
             st.subheader("Bootstrap Training Data")
             st.write(df_pd[["title", "sentiment"]])
 
         elif mode == "Predict":
-            df_spark = spark.createDataFrame(df_pd)
             if "model" not in st.session_state:
                 st.error("Run Bootstrap first!")
             else:
+                df_spark = spark.createDataFrame(df_pd)
+
                 tokenizer = st.session_state["tokenizer"]
                 hashingTF = st.session_state["hashingTF"]
                 idf_model = st.session_state["idf_model"]
@@ -104,7 +110,6 @@ if st.button("Run"):
                 rescaled_data = idf_model.transform(featurized_data)
                 predictions = model.transform(rescaled_data)
 
-                # Convert predictions to Pandas and map back to labels
                 predictions_df = predictions.select("title", "prediction").toPandas()
                 label_map_reverse = {2.0: "Positive", 1.0: "Neutral", 0.0: "Negative"}
                 predictions_df["sentiment"] = predictions_df["prediction"].map(label_map_reverse)
