@@ -4,8 +4,13 @@ import requests
 from pyspark.sql import SparkSession
 from pyspark.ml.feature import Tokenizer, HashingTF, IDF
 from pyspark.ml.classification import LogisticRegression
-from pyspark.sql.functions import lit
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+import nltk
 
+# Download VADER lexicon (only once)
+nltk.download('vader_lexicon')
+
+# Spark session caching
 @st.cache_resource
 def get_spark():
     return SparkSession.builder \
@@ -16,15 +21,34 @@ def get_spark():
 
 spark = get_spark()
 
-
+# Get API key from secrets
 NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
 
+# Fetch news from NewsAPI
 def fetch_news(topic, page_size=5):
     url = f"https://newsapi.org/v2/everything?q={topic}&pageSize={page_size}&apiKey={NEWS_API_KEY}"
     r = requests.get(url)
     articles = r.json().get("articles", [])
     return pd.DataFrame([{"title": a["title"]} for a in articles if a.get("title")])
 
+# Sentiment labeling with VADER
+def label_sentiment(df_pd):
+    sia = SentimentIntensityAnalyzer()
+    def classify_title(title):
+        score = sia.polarity_scores(title)["compound"]
+        if score > 0.05:
+            return "Positive"
+        elif score < -0.05:
+            return "Negative"
+        else:
+            return "Neutral"
+    df_pd["sentiment"] = df_pd["title"].apply(classify_title)
+    # Map to numeric labels for Spark ML
+    label_map = {"Positive": 1.0, "Neutral": 0.0, "Negative": -1.0}
+    df_pd["label"] = df_pd["sentiment"].map(label_map)
+    return df_pd
+
+# Streamlit UI
 st.title("📰 Minimal PySpark News Sentiment")
 
 topic = st.text_input("Topic", "technology")
@@ -36,12 +60,11 @@ if st.button("Run"):
     if df_pd.empty:
         st.error("No news found.")
     else:
-        df_spark = spark.createDataFrame(df_pd)
-
         if mode == "Bootstrap":
-            # Fake sentiment labels for demo
-            df_spark = df_spark.withColumn("label", lit(1.0))  # all positive just to train
-            
+            # Apply real sentiment labeling
+            df_pd = label_sentiment(df_pd)
+            df_spark = spark.createDataFrame(df_pd)
+
             tokenizer = Tokenizer(inputCol="title", outputCol="words")
             words_data = tokenizer.transform(df_spark)
 
@@ -55,14 +78,18 @@ if st.button("Run"):
             lr = LogisticRegression(maxIter=10, regParam=0.001)
             model = lr.fit(rescaled_data)
 
+            # Store pipeline parts in session state
             st.session_state["model"] = model
             st.session_state["hashingTF"] = hashingTF
             st.session_state["tokenizer"] = tokenizer
             st.session_state["idf_model"] = idf_model
 
-            st.success("Model trained in Spark (labels are fake for demo).")
+            st.success("Model trained in Spark with real sentiment labels.")
+            st.subheader("Bootstrap Training Data")
+            st.write(df_pd[["title", "sentiment"]])
 
         elif mode == "Predict":
+            df_spark = spark.createDataFrame(df_pd)
             if "model" not in st.session_state:
                 st.error("Run Bootstrap first!")
             else:
@@ -76,4 +103,10 @@ if st.button("Run"):
                 rescaled_data = idf_model.transform(featurized_data)
                 predictions = model.transform(rescaled_data)
 
-                st.write(predictions.select("title", "prediction").toPandas())
+                # Convert predictions to Pandas and map back to labels
+                predictions_df = predictions.select("title", "prediction").toPandas()
+                label_map_reverse = {1.0: "Positive", 0.0: "Neutral", -1.0: "Negative"}
+                predictions_df["sentiment"] = predictions_df["prediction"].map(label_map_reverse)
+
+                st.subheader("Predictions")
+                st.write(predictions_df[["title", "sentiment"]])
