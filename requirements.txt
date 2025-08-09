@@ -1,6 +1,6 @@
-pyspark
 streamlit
 pandas
-numpy
 requests
-nltk
+pyspark
+sparknlp
+
