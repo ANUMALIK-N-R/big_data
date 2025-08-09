@@ -43,10 +43,11 @@ def label_sentiment(df_pd):
         else:
             return "Neutral"
     df_pd["sentiment"] = df_pd["title"].apply(classify_title)
-    # Map to numeric labels for Spark ML
-    label_map = {"Positive": 1.0, "Neutral": 0.0, "Negative": -1.0}
+    # Map to numeric labels for Spark ML (all >= 0)
+    label_map = {"Positive": 2.0, "Neutral": 1.0, "Negative": 0.0}
     df_pd["label"] = df_pd["sentiment"].map(label_map)
     return df_pd
+
 
 # Streamlit UI
 st.title("📰 Minimal PySpark News Sentiment")
@@ -105,7 +106,7 @@ if st.button("Run"):
 
                 # Convert predictions to Pandas and map back to labels
                 predictions_df = predictions.select("title", "prediction").toPandas()
-                label_map_reverse = {1.0: "Positive", 0.0: "Neutral", -1.0: "Negative"}
+                label_map_reverse = {2.0: "Positive", 1.0: "Neutral", 0.0: "Negative"}
                 predictions_df["sentiment"] = predictions_df["prediction"].map(label_map_reverse)
 
                 st.subheader("Predictions")
