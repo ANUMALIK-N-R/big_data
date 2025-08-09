@@ -17,7 +17,7 @@ def get_spark():
 spark = get_spark()
 
 
-NEWS_API_KEY = st.secrets["news_api_key"]
+NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
 
 def fetch_news(topic, page_size=5):
     url = f"https://newsapi.org/v2/everything?q={topic}&pageSize={page_size}&apiKey={NEWS_API_KEY}"
