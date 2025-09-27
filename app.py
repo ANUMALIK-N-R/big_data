@@ -29,7 +29,7 @@ NEWS_API_KEY = st.secrets["NEWS_API_KEY"]
 
 # Fetch news from NewsAPI
 def fetch_news(topic, page_size=5):
-    url = f"https://newsapi.org/v2/everything?q={topic}&pageSize={page_size}&apiKey={NEWS_API_KEY}"
+    url = f"https://newsapi.org/v2/everything?q={topic}&pageSize={page_size}&sortBy=publishedAt&apiKey={NEWS_API_KEY}"
     r = requests.get(url)
     articles = r.json().get("articles", [])
     return pd.DataFrame([{"title": a["title"]} for a in articles if a.get("title")])
