@@ -7,6 +7,8 @@ from pyspark.ml.classification import LogisticRegression
 from pyspark.ml.evaluation import MulticlassClassificationEvaluator
 from nltk.sentiment.vader import SentimentIntensityAnalyzer
 import nltk
+import altair as alt
+import time
 
 # Download VADER lexicon (only once)
 nltk.download('vader_lexicon')
@@ -15,7 +17,7 @@ nltk.download('vader_lexicon')
 @st.cache_resource
 def get_spark():
     return SparkSession.builder \
-        .appName("NewsSentimentLight") \
+        .appName("NewsSentimentStreaming") \
         .master("local[*]") \
         .config("spark.ui.showConsoleProgress", "false") \
         .getOrCreate()
@@ -44,13 +46,13 @@ def label_sentiment(df_pd):
         else:
             return "Neutral"
     df_pd["sentiment"] = df_pd["title"].apply(classify_title)
-    # Map to numeric labels for Spark ML (no negatives)
+    # Map to numeric labels for Spark ML
     label_map = {"Positive": 2.0, "Neutral": 1.0, "Negative": 0.0}
     df_pd["label"] = df_pd["sentiment"].map(label_map)
     return df_pd
 
 # Streamlit UI
-st.title("📰 Minimal PySpark News Sentiment")
+st.title("📰 PySpark News Sentiment Dashboard")
 
 topic = st.text_input("Topic", "technology")
 mode = st.radio("Mode", ["Bootstrap", "Predict"])
@@ -62,10 +64,11 @@ if st.button("Run"):
         st.error("No news found.")
     else:
         if mode == "Bootstrap":
-            # Apply real sentiment labeling
+            # Label data
             df_pd = label_sentiment(df_pd)
             df_spark = spark.createDataFrame(df_pd)
 
+            # Spark ML Pipeline
             tokenizer = Tokenizer(inputCol="title", outputCol="words")
             words_data = tokenizer.transform(df_spark)
 
@@ -80,26 +83,31 @@ if st.button("Run"):
             model = lr.fit(rescaled_data)
 
             # Training accuracy
-            evaluator = MulticlassClassificationEvaluator(labelCol="label", predictionCol="prediction", metricName="accuracy")
+            evaluator = MulticlassClassificationEvaluator(
+                labelCol="label", predictionCol="prediction", metricName="accuracy")
             train_accuracy = evaluator.evaluate(model.transform(rescaled_data))
 
-            # Store pipeline parts in session state
-            st.session_state["model"] = model
-            st.session_state["hashingTF"] = hashingTF
-            st.session_state["tokenizer"] = tokenizer
-            st.session_state["idf_model"] = idf_model
+            # Store in session
+            st.session_state.update({
+                "model": model,
+                "tokenizer": tokenizer,
+                "hashingTF": hashingTF,
+                "idf_model": idf_model
+            })
 
-            st.success("Model trained in Spark with real sentiment labels.")
+            st.success("Model trained successfully!")
             st.info(f"Training Accuracy: {train_accuracy:.2%}")
-            st.subheader("Bootstrap Training Data")
+            st.subheader("Bootstrap Data")
             st.write(df_pd[["title", "sentiment"]])
 
         elif mode == "Predict":
             if "model" not in st.session_state:
                 st.error("Run Bootstrap first!")
             else:
+                # Convert new data to Spark DataFrame
                 df_spark = spark.createDataFrame(df_pd)
 
+                # Transform data using cached pipeline
                 tokenizer = st.session_state["tokenizer"]
                 hashingTF = st.session_state["hashingTF"]
                 idf_model = st.session_state["idf_model"]
@@ -116,3 +124,18 @@ if st.button("Run"):
 
                 st.subheader("Predictions")
                 st.write(predictions_df[["title", "sentiment"]])
+
+                # Real-time streaming simulation (display each row with delay)
+                st.subheader("Streaming Simulation")
+                for idx, row in predictions_df.iterrows():
+                    st.write(f"**{row['title']}** → {row['sentiment']}")
+                    time.sleep(0.5)
+
+                # Altair bar chart for sentiment distribution
+                chart_data = predictions_df.groupby("sentiment").size().reset_index(name='count')
+                chart = alt.Chart(chart_data).mark_bar().encode(
+                    x='sentiment',
+                    y='count',
+                    color='sentiment'
+                )
+                st.altair_chart(chart, use_container_width=True)
